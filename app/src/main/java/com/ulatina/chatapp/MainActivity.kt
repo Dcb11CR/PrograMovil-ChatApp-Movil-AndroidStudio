@@ -21,9 +21,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ⬇️ Cambia aquí según lo que quieras probar
-         val webUrl = "http://10.0.2.2:3000"           // LOCAL (Vite/React dev server)
-        //val webUrl = "https://chatprogaweb.net"        // PRODUCCIÓN (Azure Static Web Apps)
+         val webUrl = "https://programovil.net"        // PRODUCCIÓN (Azure Static Web Apps)
 
         setContent {
             var webViewRef by remember { mutableStateOf<WebView?>(null) }
