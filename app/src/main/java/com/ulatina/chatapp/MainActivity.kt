@@ -20,8 +20,8 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-         val webUrl = "https://programovil.net"        // PRODUCCIÓN (Azure Static Web Apps)
+        
+        val webUrl = "https://programovil.net"        // PRODUCCIÓN (Azure Static Web Apps)
 
         setContent {
             var webViewRef by remember { mutableStateOf<WebView?>(null) }
