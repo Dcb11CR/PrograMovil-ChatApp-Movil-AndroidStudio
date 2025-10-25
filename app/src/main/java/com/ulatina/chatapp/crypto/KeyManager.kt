@@ -9,6 +9,8 @@ import javax.crypto.SecretKey
 class KeyManager(private val username: String) {
     private val TAG = "E2EE"
     private val myKeyPair = CryptoUtils.generateECKeyPair()
+
+    // Mapa: peer -> shared AES key
     private val sharedKeys: MutableMap<String, SecretKey> = mutableMapOf()
 
     fun myPublicKeyJson(): String {
@@ -19,10 +21,12 @@ class KeyManager(private val username: String) {
         return dto.toJson()
     }
 
+    fun peers(): Set<String> = sharedKeys.keys
+    fun hasPeers(): Boolean = sharedKeys.isNotEmpty()
+
     /**
-     * Procesa JSON recibido desde el hub. Puede ser:
-     *  - una clave pública (genera/guarda sharedKey) => no retorna texto
-     *  - un mensaje cifrado (intenta descifrar)      => retorna Pair(from, plaintext?)
+     * Procesa JSON recibido (clave pública o mensaje cifrado)
+     * Devuelve Pair<from, plaintext?> (si es mensaje descifrado) o nulls si era clave pública.
      */
     fun handleIncoming(payloadJson: String): Pair<String?, String?> {
         return try {
@@ -42,10 +46,12 @@ class KeyManager(private val username: String) {
                     val cipher = obj.getString("cipher")
                     val key = sharedKeys[from]
                     if (key != null) {
-                        val plain = CryptoUtils.decryptAesGcm(CryptoUtils.CipherPayload(iv, cipher), key)
+                        val plain = CryptoUtils.decryptAesGcm(
+                            CryptoUtils.CipherPayload(iv, cipher), key
+                        )
                         from to plain
                     } else {
-                        Log.w(TAG, "⚠️ No hay shared key con $from aún")
+                        Log.w(TAG, "⚠️ No hay shared key con $from")
                         from to null
                     }
                 }
@@ -57,7 +63,22 @@ class KeyManager(private val username: String) {
         }
     }
 
-    /** Cifra para un peer ya negociado */
+    /** Cifra per-peer y devuelve payloads JSON listos para enviar */
+    fun encryptForAll(text: String): List<String> {
+        val out = mutableListOf<String>()
+        for ((peer, key) in sharedKeys) {
+            val c = CryptoUtils.encryptAesGcm(text, key)
+            out += EncryptedMessageDTO(
+                from = username,
+                to = peer,
+                iv = c.ivB64,
+                cipher = c.cipherB64
+            ).toJson()
+        }
+        return out
+    }
+
+    /** Cifra para un peer específico */
     fun encryptFor(peer: String, message: String): String {
         val key = sharedKeys[peer] ?: error("No shared key con $peer")
         val cipher = CryptoUtils.encryptAesGcm(message, key)

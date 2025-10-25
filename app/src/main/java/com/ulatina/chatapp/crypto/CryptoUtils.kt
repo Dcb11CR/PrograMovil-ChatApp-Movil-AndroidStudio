@@ -1,12 +1,7 @@
 package com.ulatina.chatapp.crypto
 
 import android.util.Base64
-import java.security.KeyFactory
-import java.security.KeyPair
-import java.security.KeyPairGenerator
-import java.security.PrivateKey
-import java.security.PublicKey
-import java.security.spec.ECGenParameterSpec
+import java.security.*
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.Mac
@@ -15,12 +10,47 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 object CryptoUtils {
-    // ===== AES-GCM =====
     private const val AES_MODE = "AES/GCM/NoPadding"
     private const val GCM_TAG_BITS = 128
 
+    fun generateECKeyPair(): KeyPair {
+        val kpg = KeyPairGenerator.getInstance("EC")
+        kpg.initialize(256)               // secp256r1
+        return kpg.generateKeyPair()
+    }
+
+    fun publicKeyToBase64(pub: PublicKey): String =
+        Base64.encodeToString(pub.encoded, Base64.NO_WRAP)
+
+    fun publicKeyFromBase64(b64: String): PublicKey {
+        val bytes = Base64.decode(b64, Base64.NO_WRAP)
+        val spec = X509EncodedKeySpec(bytes)
+        return KeyFactory.getInstance("EC").generatePublic(spec)
+    }
+
+    fun deriveSharedKey(
+        myPrivate: PrivateKey,
+        peerPublic: PublicKey,
+        salt: ByteArray? = null,
+        info: String = "chatapp-ecdh"
+    ): SecretKey {
+        val ka = javax.crypto.KeyAgreement.getInstance("ECDH")
+        ka.init(myPrivate)
+        ka.doPhase(peerPublic, true)
+        val shared = ka.generateSecret()
+        val prk = hmacSha256(salt ?: ByteArray(32) { 0 }, shared)          // HKDF-extract
+        val okm = hmacSha256(prk, (info.toByteArray() + 0x01))             // HKDF-expand (1 bloque)
+        return SecretKeySpec(okm.copyOf(32), "AES")
+    }
+
+    private fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(data)
+    }
+
     data class CipherPayload(val ivB64: String, val cipherB64: String) {
-        fun toJson(): String = """{"iv":"$ivB64","cipher":"$cipherB64"}"""
+        fun toJson(): String = "{\"iv\":\"$ivB64\",\"cipher\":\"$cipherB64\"}"
     }
 
     fun encryptAesGcm(plain: String, key: SecretKey): CipherPayload {
@@ -39,38 +69,7 @@ object CryptoUtils {
         val ct = Base64.decode(payload.cipherB64, Base64.NO_WRAP)
         val c = Cipher.getInstance(AES_MODE)
         c.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
-        return String(c.doFinal(ct), Charsets.UTF_8)
-    }
-
-    // ===== ECDH P-256 + HKDF-SHA256 =====
-    fun generateECKeyPair(): KeyPair {
-        val kpg = KeyPairGenerator.getInstance("EC")
-        kpg.initialize(ECGenParameterSpec("secp256r1"))
-        return kpg.generateKeyPair()
-    }
-
-    fun publicKeyToBase64(pub: PublicKey): String =
-        Base64.encodeToString(pub.encoded, Base64.NO_WRAP)
-
-    fun publicKeyFromBase64(b64: String): PublicKey {
-        val bytes = Base64.decode(b64, Base64.NO_WRAP)
-        val spec = X509EncodedKeySpec(bytes)
-        return KeyFactory.getInstance("EC").generatePublic(spec)
-    }
-
-    fun deriveSharedKey(myPrivate: PrivateKey, peerPublic: PublicKey, salt: ByteArray? = null, info: String = "chatapp-ecdh"): SecretKey {
-        val ka = javax.crypto.KeyAgreement.getInstance("ECDH")
-        ka.init(myPrivate)
-        ka.doPhase(peerPublic, true)
-        val shared = ka.generateSecret()
-        val prk = hmacSha256(salt ?: ByteArray(32) { 0 }, shared) // extract
-        val okm = hmacSha256(prk, (info.toByteArray() + 0x01))     // expand (1 bloque bastará para 32 bytes)
-        return SecretKeySpec(okm.copyOf(32), "AES")
-    }
-
-    private fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(key, "HmacSHA256"))
-        return mac.doFinal(data)
+        val pt = c.doFinal(ct)
+        return String(pt, Charsets.UTF_8)
     }
 }
